@@ -1,0 +1,84 @@
+let fnDateTable = (StartDate as date, EndDate as date, optional FYStartMonth as number, optional Holidays as list) as table =>
+  let
+    FYStartMonth = if List.Contains( {1..12}, FYStartMonth ) then FYStartMonth else 1,
+    CurrentDate = Date.From(DateTime.FixedLocalNow()),
+    DayCount = Duration.Days(Duration.From(EndDate - StartDate))+1,
+    Source = List.Dates(StartDate,DayCount,#duration(1,0,0,0)),
+    AddToday = if EndDate < CurrentDate then List.Combine( {Source, {CurrentDate}}) else Source,
+    TableFromList = Table.FromList(AddToday, Splitter.SplitByNothing()),
+    ChangedType = Table.TransformColumnTypes(TableFromList,{{"Column1", type date}}),
+    RenamedColumns = Table.RenameColumns(ChangedType,{{"Column1", "Date"}}),
+    
+    InsertYear = Table.AddColumn(RenamedColumns, "Year", each Date.Year([Date]), Int64.Type),    
+    InsertQtr = Table.AddColumn(InsertYear, "Qtr", each "Q" & Number.ToText( Date.QuarterOfYear([Date]) ), type text),
+    InsertMonth_sort = Table.AddColumn(InsertQtr, "Month_sort", each Date.Month([Date]), Int64.Type),
+    InsertDayOfMonth = Table.AddColumn(InsertMonth_sort, "DayOfMonth", each Date.Day([Date]), Int64.Type),
+    InsertDateInt = Table.AddColumn(InsertDayOfMonth, "DateInt", each [Year] * 10000 + [Month_sort] * 100 + [DayOfMonth], Int64.Type),
+    InsertMonth = Table.AddColumn(InsertDateInt, "Month", each Date.ToText([Date], "MMMM"), type text),
+    InsertMonthShort = Table.AddColumn(InsertMonth, "MonthShort", each Date.ToText([Date], "MMM"), type text),
+    InsertMonthInitial = Table.AddColumn(InsertMonthShort, "MonthInitial", each Text.Start([MonthShort],1) & Text.Repeat(Character.FromNumber(8203), [Month_sort]) , type text),
+    InsertMonthYear = Table.AddColumn(InsertMonthInitial, "Month & Year", each (try(Text.Range([Month],0,3)) otherwise [Month]) & " " & Number.ToText([Year]), type text),
+    InsertQtrYear = Table.AddColumn(InsertMonthYear, "Qtr & Year", each "Q" & Number.ToText(Date.QuarterOfYear([Date])) & " " & Number.ToText([Year]), type text),
+    InsertDayOfWeek_sort = Table.AddColumn(InsertQtrYear, "DayOfWeek_sort", each Date.DayOfWeek([Date]) + 1, Int64.Type),
+    InsertDayOfWeek = Table.AddColumn(InsertDayOfWeek_sort, "DayOfWeek", each Date.ToText([Date], "dddd"), type text),
+    InsertDayOfWeekShort = Table.AddColumn(InsertDayOfWeek, "DayOfWeekShort", each Date.ToText([Date], "ddd"), type text),
+    InsertDayOfWeekInitial = Table.AddColumn(InsertDayOfWeekShort, "DayOfWeekInitial", each Text.Start([DayOfWeekShort],1) & Text.Repeat(Character.FromNumber(8203), [DayOfWeek_sort]) , type text),
+    InsertWeekStarting = Table.AddColumn(InsertDayOfWeekInitial, "WeekStarting", each Date.StartOfWeek( [Date], Day.Monday), type date),
+    InsertWeekEnding = Table.AddColumn(InsertWeekStarting, "WeekEnding", each Date.EndOfWeek( [Date], Day.Monday), type date),
+    InsertMonthEnding = Table.AddColumn(InsertWeekEnding, "MonthEnding", each Date.EndOfMonth([Date]), type date),
+
+    InsertIsoWeekNumber= Table.AddColumn(InsertMonthEnding, "ISO Week", each
+      if Number.RoundDown((Date.DayOfYear([Date])-(Date.DayOfWeek([Date], Day.Monday)+1)+10)/7)=0
+      then Number.RoundDown((Date.DayOfYear(#date(Date.Year([Date])-1,12,31))-(Date.DayOfWeek(#date(Date.Year([Date])-1,12,31), Day.Monday)+1)+10)/7)
+      else if (Number.RoundDown((Date.DayOfYear([Date])-(Date.DayOfWeek([Date], Day.Monday)+1)+10)/7)=53 and (Date.DayOfWeek(#date(Date.Year([Date]),12,31), Day.Monday)+1<4))
+      then 1 else Number.RoundDown((Date.DayOfYear([Date])-(Date.DayOfWeek([Date], Day.Monday)+1)+10)/7), Int64.Type),
+    InsertISOyear = Table.AddColumn(InsertIsoWeekNumber, "ISO Year", each Date.Year( Date.AddDays( Date.StartOfWeek([Date], Day.Monday), 3 )),  Int64.Type),
+    BufferTable = Table.Buffer(Table.Distinct( InsertISOyear[[ISO Year], [DateInt]])),
+    InsertISOday = Table.AddColumn(InsertISOyear, "ISO Day of Year", (OT) => Table.RowCount( Table.SelectRows( BufferTable, (IT) => IT[DateInt] <= OT[DateInt] and IT[ISO Year] = OT[ISO Year])),  Int64.Type),
+    InsertISOYearWeek = Table.AddColumn(InsertISOday, "ISO Year & Week", each Text.From([ISO Year]) & "-" & Text.PadStart( Text.From( [ISO Week] ), 2, "0"), type text ),
+    
+    InsertISOYearWeek_sort = Table.AddColumn(InsertISOYearWeek, "ISO Year & Week_sort", each [ISO Year] * 10000 + [ISO Week] * 100,  Int64.Type),
+    InsertMonthYear_sort = Table.AddColumn(InsertISOYearWeek_sort , "Month & Year_sort", each [Year] * 10000 + [Month_sort] * 100, Int64.Type),
+    InsertQtrYear_sort = Table.AddColumn(InsertMonthYear_sort, "Qtr & Year_sort", each [Year] * 10000 + Date.QuarterOfYear([Date]) * 100, Int64.Type),
+    
+    InsertFiscalYear = Table.AddColumn(InsertQtrYear_sort, "Fiscal Year", each "FY" & (if [Month_sort] >= FYStartMonth then Text.PadEnd( Text.End( Text.From([Year] +1), 2), 2, "0") else Text.End( Text.From([Year]), 2)), type text),
+    InsertFiscalQtr = Table.AddColumn(InsertFiscalYear, "Fiscal Qtr", each "FQ" & Text.From( Number.RoundUp( Date.Month( Date.AddMonths( [Date], - (FYStartMonth -1) )) / 3 )), type text),
+    InsertFiscalPeriod = Table.AddColumn(InsertFiscalQtr, "Fiscal Period", each if [Month_sort] >= FYStartMonth then [Month_sort] - (FYStartMonth-1) else [Month_sort] + (12-FYStartMonth+1), Int64.Type),
+    InsertFiscalYearFirstDay = Table.AddColumn(InsertFiscalPeriod, "FiscalFirstDay", each if Date.Month([Date]) < FYStartMonth then #date( Date.Year([Date])-1, FYStartMonth, 1) else #date( Date.Year([Date]), FYStartMonth, 1)),
+    InsertFiscalWeek = Table.RemoveColumns( Table.AddColumn(InsertFiscalYearFirstDay, "Fiscal Week", each if FYStartMonth =1 then [ISO Weeknumber] else Table.RowCount( Table.SelectRows( Table.AddColumn( Table.RenameColumns( Table.TransformColumnTypes( Table.FromList( { Number.From([FiscalFirstDay])..Number.From([Date]) }, Splitter.SplitByNothing()),{{"Column1", type date}}), {{"Column1", "Dates"}}), "Day Name", each Text.Proper( Text.Start( Date.DayOfWeekName([Dates]), 3)), type text), each [Day Name] = "Mon" )),  Int64.Type ),{"FiscalFirstDay"}),
+    InsertFiscalYearWeek = Table.AddColumn( InsertFiscalWeek, "Fiscal Year & Week", each if Date.Month([Date]) < FYStartMonth then Text.From( Date.Year([Date])-1) & "-" & Text.PadStart( Text.From([Fiscal Week]), 2, "0") else Text.From( Date.Year([Date])) & "-" & Text.PadStart(Text.From([Fiscal Week]), 2, "0"), type text),
+
+	InsertFiscalYearWeek_sort = Table.AddColumn(InsertFiscalYearWeek, "Fiscal Year & Week_sort", each if FYStartMonth =1 then [WeeknYear] else (if Date.Month([Date]) < FYStartMonth then Date.Year([Date]) else Date.Year([Date])+1) * 10000 + [Fiscal Week] * 100,  Int64.Type),
+
+    InsertIsYesterday = Table.AddColumn(InsertFiscalYearWeek_sort, "IsYesterday", each if Date.IsInPreviousDay([Date]) then true else false, type logical),
+    InsertIsToday = Table.AddColumn(InsertIsYesterday, "IsToday", each if Date.IsInCurrentDay([Date]) then true else false, type logical),
+    InsertIsAfterToday = Table.AddColumn(InsertIsToday, "IsAfterToday", each not ([Date] <= Date.From(CurrentDate)), type logical),
+    InsertIsWorkingDay = Table.AddColumn(InsertIsAfterToday, "IsWorkingDay", each if Date.DayOfWeek([Date], Day.Monday) > 4 then false else true, type logical),
+    InsertIsHoliday = Table.AddColumn(InsertIsWorkingDay, "IsHoliday", each if Holidays = null then "Unknown" else List.Contains( Holidays, [Date] ), if Holidays = null then type text else type logical),
+    InsertIsBusinessDay = Table.AddColumn(InsertIsHoliday, "IsBusinessDay", each if [IsWorkingDay] = true and [IsHoliday] <> true then true else false, type logical),
+    InsertDayType = Table.AddColumn(InsertIsBusinessDay, "Day Type", each if [IsHoliday] = true then "Holiday" else if [IsWorkingDay] = false then "Weekend" else if [IsWorkingDay] = true then "Weekday" else null, type text),
+
+    InsertDayOffset = Table.AddColumn(InsertDayType, "DayOffset", each Number.From([Date] - CurrentDate), Int64.Type),
+    InsertWeekOffset = Table.AddColumn(InsertDayOffset, "WeekOffset", each (Number.From(Date.StartOfWeek([Date], Day.Monday))-Number.From(Date.StartOfWeek(CurrentDate, Day.Monday)))/7, Int64.Type),
+    InsertMonthOffset = Table.AddColumn(InsertWeekOffset, "MonthOffset", each ((12 * Date.Year([Date])) +  Date.Month([Date])) - ((12 * Date.Year(Date.From(CurrentDate))) +  Date.Month(Date.From(CurrentDate))), Int64.Type),
+    InsertQtrOffset = Table.AddColumn(InsertMonthOffset, "QtrOffset", each ((4 * Date.Year([Date])) +  Date.QuarterOfYear([Date])) - ((4 * Date.Year(Date.From(CurrentDate))) +  Date.QuarterOfYear(Date.From(CurrentDate))), Int64.Type),
+    InsertYearOffset = Table.AddColumn(InsertQtrOffset, "YearOffset", each Date.Year([Date]) - Date.Year(Date.From(CurrentDate)), Int64.Type),
+
+    IdentifyCurrentDate = Table.SelectRows(InsertYearOffset, each ([Date] = CurrentDate)),
+    CurrentYear = IdentifyCurrentDate{0}[Year],
+    CurrentMonth = IdentifyCurrentDate{0}[Month_sort],
+    InsertFYoffset = Table.AddColumn(InsertYearOffset, "FiscalYearOffset", each try (if [Month_sort] >= FYStartMonth then [Year]+1 else [Year]) - 
+      (if CurrentMonth >= FYStartMonth then CurrentYear+1 else CurrentYear) otherwise null, Int64.Type),
+    RemoveToday = if EndDate < CurrentDate then Table.SelectRows(InsertFYoffset, each ([Date] <> CurrentDate)) else InsertFYoffset,
+    InsertCompletedWeek = Table.AddColumn(RemoveToday, "WeekCompleted", each [WeekEnding] < Date.From(Date.EndOfWeek(CurrentDate)), type logical),
+    InsertCompletedMonth = Table.AddColumn(InsertCompletedWeek, "MonthCompleted", each [MonthEnding] < Date.From(Date.EndOfMonth(CurrentDate)), type logical),
+    InsertCompletedQtr = Table.AddColumn(InsertCompletedMonth, "QtrCompleted", each Date.EndOfQuarter([Date]) < Date.From(Date.EndOfQuarter(CurrentDate)), type logical),
+
+    InsertCurrentYear = Table.AddColumn(InsertCompletedQtr, "CurrentYear", each if Date.IsInCurrentYear([Date]) then "Current Year" else Number.ToText([Year]), type text),
+    InsertCurrentQtr = Table.AddColumn(InsertCurrentYear, "CurrentQtr", each if Date.IsInCurrentQuarter([Date]) then "Current Qtr" else [Qtr], type text),
+    InsertCurrentMonth = Table.AddColumn(InsertCurrentQtr, "CurrentMonth", each if Date.IsInCurrentMonth([Date]) then "Current Month" else [Month], type text),
+    InsertCurrentWeek = Table.AddColumn(InsertCurrentMonth, "CurrentWeek", each if Date.IsInCurrentWeek([Date]) then "Current Week" else Number.ToText([ISO Week]), type text)
+  in
+  InsertCurrentWeek
+in
+fnDateTable
