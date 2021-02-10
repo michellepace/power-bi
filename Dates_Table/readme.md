@@ -1,12 +1,12 @@
 # About this dates table
 
 ### Tell me what's fancy in here?
-- Use parameters to set the start and end date of your Dates table
-- Use parameters to set the start of your fiscal period
-- To make your visuals prettier, months and weekdays are available as "J F M A M...D"
-- WEEK functionality (ISO weeks to be specific)
+- Set start/end dates of your Dates table with query parameters
+- Set fiscal period with a query parameter
+- Make your visuals prettier, Months and Weekdays are available as "J F M A M...D"
+- Week functionality (ISO weeks to be specific)
 - Fiscal functionality (year, period, week)
-- Current (year, quarter, month, week). Default slicers on your page to this so that the current year etc is always selected by default
+- Current (year, quarter, month, week) period. Default slicers on your page to this so that the current year etc is always selected by default
 - Offsets (years, quarters, months, days). Apparently very powerful
 - IsAfterToday. Helps with cumulative totals (see example in pbix)
 
