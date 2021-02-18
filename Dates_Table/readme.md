@@ -4,7 +4,7 @@
 - Set start/end dates of your Dates table with query parameters
 - Set fiscal period with a query parameter
 - Make your visuals prettier, Months and Weekdays are available as "J F M A M...D"
-- Week functionality (ISO weeks to be specific)
+- Week functionality (But if using, be sure to use ISO Year, ISO Qtr, ISO Qtr & Year - only)
 - Fiscal functionality (year, period, week)
 - Current (year, quarter, month, week) period. Default slicers on your page to this so that the current year etc is always selected by default
 - Offsets (years, quarters, months, days). Apparently very powerful

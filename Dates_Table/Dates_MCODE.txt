@@ -36,12 +36,20 @@ let fnDateTable = (StartDate as date, EndDate as date, optional FYStartMonth as 
     BufferTable = Table.Buffer(Table.Distinct( InsertISOyear[[ISO Year], [DateInt]])),
     InsertISOday = Table.AddColumn(InsertISOyear, "ISO Day of Year", (OT) => Table.RowCount( Table.SelectRows( BufferTable, (IT) => IT[DateInt] <= OT[DateInt] and IT[ISO Year] = OT[ISO Year])),  Int64.Type),
     InsertISOYearWeek = Table.AddColumn(InsertISOday, "ISO Year & Week", each Text.From([ISO Year]) & "-" & Text.PadStart( Text.From( [ISO Week] ), 2, "0"), type text ),
+
+    InsertISOQuarter = Table.AddColumn(InsertISOYearWeek, "ISO Qtr", each
+      if [ISO Week] <= 13 then "Q1" else
+      if [ISO Week] <= 26 then "Q2" else
+      if [ISO Week] <= 39 then "Q3" else "Q4", type text), 
     
-    InsertISOYearWeek_sort = Table.AddColumn(InsertISOYearWeek, "ISO Year & Week_sort", each [ISO Year] * 10000 + [ISO Week] * 100,  Int64.Type),
+    InsertISOQtrYear = Table.AddColumn(InsertISOQuarter, "ISO Qtr & Year", each [ISO Qtr] & " " & Number.ToText([ISO Year]), type text),
+    
+    InsertISOYearWeek_sort = Table.AddColumn(InsertISOQtrYear, "ISO Year & Week_sort", each [ISO Year] * 10000 + [ISO Week] * 100,  Int64.Type),
     InsertMonthYear_sort = Table.AddColumn(InsertISOYearWeek_sort , "Month & Year_sort", each [Year] * 10000 + [Month_sort] * 100, Int64.Type),
     InsertQtrYear_sort = Table.AddColumn(InsertMonthYear_sort, "Qtr & Year_sort", each [Year] * 10000 + Date.QuarterOfYear([Date]) * 100, Int64.Type),
+    InsertISOQtrYear_sort = Table.AddColumn(InsertQtrYear_sort, "ISO Qtr & Year_sort", each [ISO Year] * 10000 + Number.FromText(Text.End([ISO Qtr],1)) * 100, Int64.Type),
     
-    InsertFiscalYear = Table.AddColumn(InsertQtrYear_sort, "Fiscal Year", each "FY" & (if [Month_sort] >= FYStartMonth then Text.PadEnd( Text.End( Text.From([Year] +1), 2), 2, "0") else Text.End( Text.From([Year]), 2)), type text),
+    InsertFiscalYear = Table.AddColumn(InsertISOQtrYear_sort, "Fiscal Year", each "FY" & (if [Month_sort] >= FYStartMonth then Text.PadEnd( Text.End( Text.From([Year] +1), 2), 2, "0") else Text.End( Text.From([Year]), 2)), type text),
     InsertFiscalQtr = Table.AddColumn(InsertFiscalYear, "Fiscal Qtr", each "FQ" & Text.From( Number.RoundUp( Date.Month( Date.AddMonths( [Date], - (FYStartMonth -1) )) / 3 )), type text),
     InsertFiscalPeriod = Table.AddColumn(InsertFiscalQtr, "Fiscal Period", each if [Month_sort] >= FYStartMonth then [Month_sort] - (FYStartMonth-1) else [Month_sort] + (12-FYStartMonth+1), Int64.Type),
     InsertFiscalYearFirstDay = Table.AddColumn(InsertFiscalPeriod, "FiscalFirstDay", each if Date.Month([Date]) < FYStartMonth then #date( Date.Year([Date])-1, FYStartMonth, 1) else #date( Date.Year([Date]), FYStartMonth, 1)),
